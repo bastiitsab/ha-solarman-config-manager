@@ -1,0 +1,14 @@
+{
+  "domain": "solarman_config_manager",
+  "name": "Solarman Config Manager",
+  "codeowners": ["@bastiitsab"],
+  "config_flow": false,
+  "dependencies": [],
+  "after_dependencies": ["solarman"],
+  "documentation": "https://github.com/bastiitsab/ha-solarman-config-manager",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/bastiitsab/ha-solarman-config-manager/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

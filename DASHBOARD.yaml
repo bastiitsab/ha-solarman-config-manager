@@ -1,0 +1,111 @@
+# Complete Solarman Backup Dashboard
+# Copy this YAML and paste it into your Lovelace dashboard
+
+type: vertical-stack
+cards:
+  - type: markdown
+    content: |
+      ## 🔧 Solarman Configuration Manager
+      
+      Export backups and compare configurations in one place.
+      
+  # Backup Section
+  - type: entities
+    title: Backup Operations
+    entities:
+      - type: button
+        name: Export Configuration Now
+        icon: mdi:download
+        action_name: Export
+        tap_action:
+          action: call-service
+          service: solarman_config_manager.export_config
+      - entity: sensor.solarman_config_manager_files
+        name: Total Backup Files
+        icon: mdi:file-multiple
+        
+  # File Selection Section
+  - type: entities
+    title: Compare Configurations
+    entities:
+      - entity: input_select.solarman_file1
+        name: Select File 1 (Older)
+      - entity: input_select.solarman_file2
+        name: Select File 2 (Newer)
+      - entity: input_boolean.solarman_config_only
+        name: Configuration Only (Hide Sensors)
+      - entity: input_button.solarman_compare
+        name: Compare Selected Files
+            
+  # Comparison Result Summary
+  - type: markdown
+    content: |
+      ### 📊 Latest Comparison Result
+      
+      **Status:** {{ states('sensor.solarman_config_manager_comparison_result') }}
+      
+      {% set data = state_attr('sensor.solarman_config_manager_comparison_result', 'summary') %}
+      {% if data and data.changed is defined %}
+      **Summary:**
+      - ✏️ Changed: {{ data.changed }}
+      - ➕ Added: {{ data.added }}
+      - ➖ Removed: {{ data.removed }}
+      - ✅ Unchanged: {{ data.unchanged }}
+      
+      {% set file1 = state_attr('sensor.solarman_config_manager_comparison_result', 'file1') %}
+      {% set file2 = state_attr('sensor.solarman_config_manager_comparison_result', 'file2') %}
+      {% if file1 and file2 %}
+      **Comparing:**
+      - 📄 File 1: `{{ file1 }}`
+      - 📄 File 2: `{{ file2 }}`
+      {% endif %}
+      
+      {% if state_attr('sensor.solarman_config_manager_comparison_result', 'config_only') %}
+      ℹ️ _Showing configuration changes only._
+      {% endif %}
+      {% else %}
+      _No comparison performed yet or data format mismatch. Select two files above and click Compare._
+      {% endif %}
+      
+  # Detailed Changes
+  - type: conditional
+    conditions:
+      - entity: sensor.solarman_config_manager_comparison_result
+        state_not: "No comparison yet"
+    card:
+      type: markdown
+      content: |
+        ### 🔍 Detailed Changes
+        
+        {% set changes = state_attr('sensor.solarman_config_manager_comparison_result', 'changes') %}
+        {% if changes %}
+        {% for entity_id, change in changes.items() %}
+        **{{ entity_id.replace('number.', '').replace('_', ' ').title() }}**
+        - 🔴 Old: `{{ change.old_value }}`
+        - 🟢 New: `{{ change.new_value }}`
+        {% if change.changed_attributes %}
+        - 📝 Attributes: {{ change.changed_attributes | join(', ') }}
+        {% endif %}
+        
+        {% endfor %}
+        {% else %}
+        ✅ No configuration changes detected.
+        {% endif %}
+        
+        {% set added = state_attr('sensor.solarman_config_manager_comparison_result', 'added_entities') %}
+        {% if added and added | length > 0 %}
+        
+        **➕ Added Entities:**
+        {% for entity in added %}
+        - {{ entity }}
+        {% endfor %}
+        {% endif %}
+        
+        {% set removed = state_attr('sensor.solarman_config_manager_comparison_result', 'removed_entities') %}
+        {% if removed and removed | length > 0 %}
+        
+        **➖ Removed Entities:**
+        {% for entity in removed %}
+        - {{ entity }}
+        {% endfor %}
+        {% endif %}

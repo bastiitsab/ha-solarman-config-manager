@@ -1,0 +1,41 @@
+export_config:
+  name: Export Solarman Configuration
+  description: Export all Solarman entities and their states to a JSON file
+  fields:
+    filename:
+      name: Filename
+      description: Name of the export file (without path). If not provided, a timestamp-based name will be generated.
+      example: "my_inverter_config.json"
+      selector:
+        text:
+    include_unavailable:
+      name: Include Unavailable Entities
+      description: Include entities that are currently unavailable in the export
+      default: false
+      selector:
+        boolean:
+
+compare_exports:
+  name: Compare Two Exports
+  description: Compare two Solarman export files and generate a diff report
+  fields:
+    file1:
+      name: First File
+      description: Filename of the first export (older/baseline)
+      required: true
+      example: "solarman_export_20251217_100000.json"
+      selector:
+        text:
+    file2:
+      name: Second File
+      description: Filename of the second export (newer/comparison)
+      required: true
+      example: "solarman_export_20251217_110000.json"
+      selector:
+        text:
+    config_only:
+      name: Configuration Changes Only
+      description: Only show changes to user-configurable settings (number, select, switch). Excludes read-only sensors (power, voltage, etc.)
+      default: true
+      selector:
+        boolean:
