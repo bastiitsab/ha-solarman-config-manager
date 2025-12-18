@@ -54,7 +54,7 @@ Add these to your `automations.yaml`:
         options: >
           {% set files = state_attr("sensor.solarman_config_manager_files", "files") %}
           {% if files and files|length > 0 %}
-            {{ files }}
+            {{ ["No files available"] + files }}
           {% else %}
             ["No files available"]
           {% endif %}
@@ -65,7 +65,7 @@ Add these to your `automations.yaml`:
         options: >
           {% set files = state_attr("sensor.solarman_config_manager_files", "files") %}
           {% if files and files|length > 0 %}
-            {{ files }}
+            {{ ["No files available"] + files }}
           {% else %}
             ["No files available"]
           {% endif %}
