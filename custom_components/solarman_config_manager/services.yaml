@@ -39,3 +39,40 @@ compare_exports:
       default: true
       selector:
         boolean:
+
+restore_from_comparison:
+  name: Restore Configuration from Comparison
+  description: Restore entity values using a comparison file. Can revert to old values or apply new values.
+  fields:
+    comparison_file:
+      name: Comparison File
+      description: Filename of the comparison JSON file to use (without .json extension)
+      required: true
+      example: "comparison_20251217_220000"
+      selector:
+        text:
+    direction:
+      name: Restore Direction
+      description: Choose whether to revert to old values or apply new values
+      required: true
+      default: "revert"
+      selector:
+        select:
+          options:
+            - label: "Revert to Old Values"
+              value: "revert"
+            - label: "Apply New Values"
+              value: "apply"
+    dry_run:
+      name: Dry Run (Preview Only)
+      description: Preview changes without actually applying them
+      default: false
+      selector:
+        boolean:
+    confirm:
+      name: Confirmation
+      description: Type 'CONFIRM' to proceed with restore operation
+      required: true
+      example: "CONFIRM"
+      selector:
+        text:

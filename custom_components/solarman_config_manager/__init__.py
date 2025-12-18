@@ -19,8 +19,10 @@ from .const import (
     DOMAIN,
     SERVICE_EXPORT_CONFIG,
     SERVICE_COMPARE_EXPORTS,
+    SERVICE_RESTORE_FROM_COMPARISON,
     DEFAULT_BACKUP_DIR,
     SOLARMAN_DOMAIN,
+    DOMAIN_SERVICE_MAP,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,6 +36,13 @@ COMPARE_EXPORTS_SCHEMA = vol.Schema({
     vol.Required("file1"): cv.string,
     vol.Required("file2"): cv.string,
     vol.Optional("config_only", default=True): cv.boolean,
+})
+
+RESTORE_FROM_COMPARISON_SCHEMA = vol.Schema({
+    vol.Required("comparison_file"): cv.string,
+    vol.Required("direction"): vol.In(["revert", "apply"]),
+    vol.Optional("dry_run", default=False): cv.boolean,
+    vol.Required("confirm"): cv.string,
 })
 
 
@@ -351,6 +360,242 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 },
             )
     
+    async def handle_restore_from_comparison(call: ServiceCall) -> None:
+        """Handle the restore_from_comparison service call."""
+        comparison_file = call.data["comparison_file"]
+        direction = call.data["direction"]
+        dry_run = call.data.get("dry_run", False)
+        confirm = call.data["confirm"]
+        
+        # Confirmation check
+        if confirm != "CONFIRM":
+            error_msg = "Restore cancelled: You must type 'CONFIRM' to proceed"
+            _LOGGER.warning(error_msg)
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "message": error_msg,
+                    "title": "Solarman Restore Cancelled",
+                    "notification_id": "solarman_config_manager_restore_error",
+                },
+            )
+            return
+        
+        # Sanitize filename
+        comparison_file = "".join(c for c in comparison_file if c.isalnum() or c in "._- ")
+        
+        if not comparison_file.endswith(".json"):
+            comparison_file += ".json"
+        
+        comparison_filepath = backup_dir / comparison_file
+        
+        # Verify path is within backup directory
+        try:
+            if not comparison_filepath.resolve().is_relative_to(backup_dir.resolve()):
+                _LOGGER.error(f"Security: Attempted path traversal with comparison file: {comparison_file}")
+                await hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "message": "Invalid filename provided.",
+                        "title": "Solarman Restore Failed",
+                        "notification_id": "solarman_config_manager_restore_error",
+                    },
+                )
+                return
+        except ValueError:
+            _LOGGER.error(f"Security: Path validation failed")
+            return
+        
+        _LOGGER.info(f"{'[DRY RUN] ' if dry_run else ''}Restoring configuration from {comparison_file}, direction={direction}")
+        
+        def load_comparison():
+            with open(comparison_filepath, "r", encoding="utf-8") as f:
+                return json.load(f)
+        
+        try:
+            # Load comparison file
+            comparison_data = await hass.async_add_executor_job(load_comparison)
+            
+            changes = comparison_data.get("changes", {})
+            
+            if not changes:
+                await hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "message": "No changes found in comparison file.",
+                        "title": "Solarman Restore",
+                        "notification_id": "solarman_config_manager_restore",
+                    },
+                )
+                return
+            
+            results = {
+                "success": [],
+                "failed": [],
+                "skipped": [],
+            }
+            
+            # Process each changed entity
+            for entity_id, change_data in changes.items():
+                domain = entity_id.split(".")[0]
+                
+                # Skip entities we can't restore
+                if domain not in DOMAIN_SERVICE_MAP:
+                    results["skipped"].append({"entity": entity_id, "reason": f"Domain '{domain}' not restorable"})
+                    continue
+                
+                # Get target value based on direction
+                target_value = change_data["old_value"] if direction == "revert" else change_data["new_value"]
+                
+                if target_value is None:
+                    results["skipped"].append({"entity": entity_id, "reason": "Target value is None"})
+                    continue
+                
+                # Build service call
+                service_map = DOMAIN_SERVICE_MAP[domain]
+                
+                # Handle switch/boolean domains
+                if "service_on" in service_map:
+                    if target_value in ["on", "On", "ON", True, "true", "True"]:
+                        service_name = service_map["service_on"]
+                        service_data = {"entity_id": entity_id}
+                    else:
+                        service_name = service_map["service_off"]
+                        service_data = {"entity_id": entity_id}
+                else:
+                    # Handle number/select domains
+                    service_name = service_map["service"]
+                    param_name = service_map["param"]
+                    service_data = {
+                        "entity_id": entity_id,
+                        param_name: target_value,
+                    }
+                
+                if dry_run:
+                    _LOGGER.info(f"[DRY RUN] Would call {domain}.{service_name} with {service_data}")
+                    results["success"].append({
+                        "entity": entity_id,
+                        "service": f"{domain}.{service_name}",
+                        "data": service_data,
+                        "dry_run": True,
+                    })
+                else:
+                    try:
+                        await hass.services.async_call(domain, service_name, service_data, blocking=True)
+                        _LOGGER.info(f"Restored {entity_id} to {target_value}")
+                        results["success"].append({
+                            "entity": entity_id,
+                            "value": target_value,
+                        })
+                        # Small delay to avoid flooding
+                        await hass.async_add_executor_job(lambda: __import__('time').sleep(0.1))
+                    except Exception as e:
+                        _LOGGER.error(f"Failed to restore {entity_id}: {e}")
+                        results["failed"].append({
+                            "entity": entity_id,
+                            "error": str(e),
+                        })
+            
+            # Generate summary
+            summary_msg = (
+                f"{'[DRY RUN] ' if dry_run else ''}Restore Summary:\n\n"
+                f"✅ Success: {len(results['success'])}\n"
+                f"❌ Failed: {len(results['failed'])}\n"
+                f"⏭️ Skipped: {len(results['skipped'])}\n\n"
+            )
+            
+            # Show details of what will change (dry run) or what changed
+            if results["success"]:
+                if dry_run:
+                    summary_msg += "**Will restore these entities:**\n"
+                    for item in results["success"][:10]:  # Show first 10
+                        entity_name = item['entity'].replace('number.', '').replace('select.', '').replace('_', ' ').title()
+                        if 'data' in item:
+                            # Extract the value from service data
+                            value = item['data'].get('value') or item['data'].get('option') or 'on/off'
+                            summary_msg += f"  • {entity_name}: → {value}\n"
+                    if len(results["success"]) > 10:
+                        summary_msg += f"  ... and {len(results['success']) - 10} more\n"
+                else:
+                    summary_msg += "**Restored entities:**\n"
+                    for item in results["success"][:10]:
+                        entity_name = item['entity'].replace('number.', '').replace('select.', '').replace('_', ' ').title()
+                        summary_msg += f"  • {item['entity']}: → {item['value']}\n"
+                    if len(results["success"]) > 10:
+                        summary_msg += f"  ... and {len(results['success']) - 10} more\n"
+                summary_msg += "\n"
+            
+            if results["failed"]:
+                summary_msg += "**Failed entities:**\n"
+                for item in results["failed"][:5]:
+                    summary_msg += f"  • {item['entity']}: {item['error']}\n"
+                summary_msg += "\n"
+            
+            if results["skipped"] and len(results["skipped"]) <= 5:
+                summary_msg += "**Skipped entities:**\n"
+                for item in results["skipped"]:
+                    summary_msg += f"  • {item['entity']}: {item['reason']}\n"
+            
+            _LOGGER.info(f"Restore complete: {summary_msg}")
+            
+            # Store result in hass.data for sensor
+            if DOMAIN not in hass.data:
+                hass.data[DOMAIN] = {}
+            hass.data[DOMAIN]["last_restore_result"] = {
+                "success": len(results["success"]),
+                "failed": len(results["failed"]),
+                "skipped": len(results["skipped"]),
+                "dry_run": dry_run,
+                "direction": direction,
+                "comparison_file": comparison_file,
+                "timestamp": datetime.now().isoformat(),
+                "summary": results,
+            }
+            
+            # Trigger sensor update
+            restore_sensor = hass.states.get(f"sensor.{DOMAIN}_restore")
+            if restore_sensor:
+                # Fire an event to trigger sensor update
+                hass.bus.async_fire(f"{DOMAIN}_restore_complete")
+            
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "message": summary_msg,
+                    "title": f"Solarman Restore {'(Dry Run) ' if dry_run else ''}Complete",
+                    "notification_id": "solarman_config_manager_restore",
+                },
+            )
+            
+        except FileNotFoundError:
+            error_msg = f"Comparison file not found: {comparison_file}"
+            _LOGGER.error(error_msg)
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "message": error_msg,
+                    "title": "Solarman Restore Failed",
+                    "notification_id": "solarman_config_manager_restore_error",
+                },
+            )
+        except Exception as e:
+            error_msg = f"Failed to restore configuration: {e}"
+            _LOGGER.error(error_msg)
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "message": error_msg,
+                    "title": "Solarman Restore Failed",
+                    "notification_id": "solarman_config_manager_restore_error",
+                },
+            )
+    
     # Register services
     hass.services.async_register(
         DOMAIN,
@@ -364,6 +609,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_COMPARE_EXPORTS,
         handle_compare_exports,
         schema=COMPARE_EXPORTS_SCHEMA,
+    )
+    
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESTORE_FROM_COMPARISON,
+        handle_restore_from_comparison,
+        schema=RESTORE_FROM_COMPARISON_SCHEMA,
     )
     
     # Load sensors
