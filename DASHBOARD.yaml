@@ -140,17 +140,37 @@ cards:
       
       **Last Restore:** {{ states('sensor.solarman_config_manager_restore_result') }}
       
-      {% set data = state_attr('sensor.solarman_config_manager_restore_result', 'summary') %}
+      {% set success = state_attr('sensor.solarman_config_manager_restore_result', 'success') %}
+      {% set failed = state_attr('sensor.solarman_config_manager_restore_result', 'failed') %}
+      {% set skipped = state_attr('sensor.solarman_config_manager_restore_result', 'skipped') %}
       {% set dry_run = state_attr('sensor.solarman_config_manager_restore_result', 'dry_run') %}
-      {% if data and data.success is defined %}
+      {% set summary = state_attr('sensor.solarman_config_manager_restore_result', 'summary') %}
+      {% if success is not none %}
       
       **Summary:**
-      - ✅ Success: {{ data.success }}
-      - ❌ Failed: {{ data.failed }}
-      - ⏭️ Skipped: {{ data.skipped }}
+      - ✅ Success: {{ success }}
+      - ❌ Failed: {{ failed }}
+      - ⏭️ Skipped: {{ skipped }}
       
       {% if dry_run %}
       ⚠️ _This was a dry run - no changes were made._
+      {% endif %}
+      
+      {% if summary and summary.success %}
+      **Restored Entities:**
+      {% for item in summary.success[:10] %}
+      - {{ item.entity.split('.')[1] | replace('_', ' ') | title }}: → `{{ item.value if item.value is defined else (item.data.value if item.data is defined and item.data.value is defined else (item.data.option if item.data is defined and item.data.option is defined else 'on/off')) }}`
+      {% endfor %}
+      {% if summary.success | length > 10 %}
+      _... and {{ summary.success | length - 10 }} more_
+      {% endif %}
+      {% endif %}
+      
+      {% if summary and summary.failed %}
+      **Failed:**
+      {% for item in summary.failed[:5] %}
+      - {{ item.entity }}: {{ item.error }}
+      {% endfor %}
       {% endif %}
       {% else %}
       _No restore operation performed yet._

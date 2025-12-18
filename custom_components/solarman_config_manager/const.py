@@ -13,6 +13,11 @@ DEFAULT_BACKUP_DIR = "solarman_config_backups"
 # Solarman integration domain
 SOLARMAN_DOMAIN = "solarman"
 
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent path traversal and invalid characters."""
+    return "".join(c for c in filename if c.isalnum() or c in "._- ").strip()
+
+
 # Domain to service mapping for restore operations
 DOMAIN_SERVICE_MAP = {
     "number": {

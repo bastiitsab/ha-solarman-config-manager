@@ -1,17 +1,14 @@
 """Solarman Config Manager Integration."""
+import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_time_interval
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers import entity_registry as er
 
@@ -23,6 +20,7 @@ from .const import (
     DEFAULT_BACKUP_DIR,
     SOLARMAN_DOMAIN,
     DOMAIN_SERVICE_MAP,
+    sanitize_filename,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,9 +64,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"solarman_export_{timestamp}.json"
         
-        # Sanitize filename - remove path separators and dangerous characters
-        filename = "".join(c for c in filename if c.isalnum() or c in "._- ")
-        filename = filename.strip()
+        # Sanitize filename
+        filename = sanitize_filename(filename)
         
         if not filename:
             filename = f"solarman_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -161,9 +158,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         file2 = call.data["file2"]
         config_only = call.data.get("config_only", True)
         
-        # Sanitize filenames - remove path separators
-        file1 = "".join(c for c in file1 if c.isalnum() or c in "._- ")
-        file2 = "".join(c for c in file2 if c.isalnum() or c in "._- ")
+        # Sanitize filenames
+        file1 = sanitize_filename(file1)
+        file2 = sanitize_filename(file2)
         
         if not file1.endswith(".json"):
             file1 += ".json"
@@ -383,7 +380,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             return
         
         # Sanitize filename
-        comparison_file = "".join(c for c in comparison_file if c.isalnum() or c in "._- ")
+        comparison_file = sanitize_filename(comparison_file)
         
         if not comparison_file.endswith(".json"):
             comparison_file += ".json"
@@ -454,6 +451,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                     results["skipped"].append({"entity": entity_id, "reason": "Target value is None"})
                     continue
                 
+                # Convert numeric strings for number domain
+                if domain in ["number", "input_number"] and isinstance(target_value, str):
+                    try:
+                        target_value = float(target_value)
+                    except ValueError:
+                        results["skipped"].append({"entity": entity_id, "reason": f"Invalid number value: {target_value}"})
+                        continue
+                
                 # Build service call
                 service_map = DOMAIN_SERVICE_MAP[domain]
                 
@@ -491,7 +496,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                             "value": target_value,
                         })
                         # Small delay to avoid flooding
-                        await hass.async_add_executor_job(lambda: __import__('time').sleep(0.1))
+                        await asyncio.sleep(0.1)
                     except Exception as e:
                         _LOGGER.error(f"Failed to restore {entity_id}: {e}")
                         results["failed"].append({
@@ -555,11 +560,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 "summary": results,
             }
             
-            # Trigger sensor update
-            restore_sensor = hass.states.get(f"sensor.{DOMAIN}_restore")
-            if restore_sensor:
-                # Fire an event to trigger sensor update
-                hass.bus.async_fire(f"{DOMAIN}_restore_complete")
+            # Fire event to trigger sensor update (no condition needed)
+            hass.bus.async_fire(f"{DOMAIN}_restore_complete")
             
             await hass.services.async_call(
                 "persistent_notification",
@@ -635,4 +637,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    # Unregister services
+    hass.services.async_remove(DOMAIN, SERVICE_EXPORT_CONFIG)
+    hass.services.async_remove(DOMAIN, SERVICE_COMPARE_EXPORTS)
+    hass.services.async_remove(DOMAIN, SERVICE_RESTORE_FROM_COMPARISON)
     return True
