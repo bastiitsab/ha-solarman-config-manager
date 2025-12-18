@@ -27,6 +27,7 @@ async def async_setup_platform(
     sensors = [
         SolarmanConfigManagerFilesSensor(hass),
         SolarmanConfigManagerComparisonResultSensor(hass),
+        SolarmanConfigManagerRestoreResultSensor(hass),
     ]
     async_add_entities(sensors, True)
 
@@ -43,6 +44,7 @@ class SolarmanConfigManagerFilesSensor(SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_files"
         self._attr_native_value = 0
         self._files = []
+        self._comparison_files = []
 
     @property
     def native_value(self) -> int:
@@ -55,6 +57,7 @@ class SolarmanConfigManagerFilesSensor(SensorEntity):
         return {
             "files": self._files,
             "file_list": self._files,
+            "comparison_files": self._comparison_files,
         }
 
     async def async_update(self) -> None:
@@ -63,15 +66,20 @@ class SolarmanConfigManagerFilesSensor(SensorEntity):
         
         def get_files():
             if not backup_dir.exists():
-                return []
-            return sorted(
+                return [], []
+            export_files = sorted(
                 [f.stem for f in backup_dir.glob("solarman_export_*.json")],
                 reverse=True,
             )
+            comparison_files = sorted(
+                [f.stem for f in backup_dir.glob("comparison_*.json")],
+                reverse=True,
+            )
+            return export_files, comparison_files
 
-        self._files = await self.hass.async_add_executor_job(get_files)
+        self._files, self._comparison_files = await self.hass.async_add_executor_job(get_files)
         self._attr_native_value = len(self._files)
-        _LOGGER.debug(f"Updated backup files sensor: {self._attr_native_value} files found")
+        _LOGGER.debug(f"Updated backup files sensor: {self._attr_native_value} export files, {len(self._comparison_files)} comparison files found")
 
 
 class SolarmanConfigManagerComparisonResultSensor(SensorEntity):
@@ -178,4 +186,46 @@ class SolarmanConfigManagerComparisonResultSensor(SensorEntity):
             _LOGGER.error(f"Error processing comparison data: {e}")
             self._attr_native_value = "Error processing comparison"
             self._comparison_data = {}
+
+
+class SolarmanConfigManagerRestoreResultSensor(SensorEntity):
+    """Sensor to display the latest restore result."""
+
+    _attr_name = "Solarman Config Manager Restore Result"
+    _attr_icon = "mdi:restore"
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self._attr_unique_id = f"{DOMAIN}_restore"
+        self._attr_native_value = "No restore yet"
+        self._restore_data = {}
+        
+        # Listen for restore complete events
+        async def handle_restore_complete(event):
+            await self.async_update_ha_state(force_refresh=True)
+        
+        hass.bus.async_listen(f"{DOMAIN}_restore_complete", handle_restore_complete)
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        return self._attr_native_value
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        return self._restore_data
+
+    async def async_update(self) -> None:
+        """Update the sensor by reading the latest restore result from persistent notification."""
+        # This sensor is updated by the restore service via hass.data
+        restore_result = self.hass.data.get(DOMAIN, {}).get("last_restore_result")
+        if restore_result:
+            self._restore_data = restore_result
+            if restore_result.get("dry_run"):
+                self._attr_native_value = "Dry Run Complete"
+            else:
+                self._attr_native_value = "Restore Complete"
+            _LOGGER.debug(f"Updated restore sensor: {self._attr_native_value}")
 

@@ -2,19 +2,29 @@
 
 ## ✅ What's Installed
 
-### 1. **Two Sensors**
+### 1. **Sensors**
 - `sensor.solarman_config_manager_files` - Lists all available backup files
 - `sensor.solarman_config_manager_comparison_result` - Shows the latest comparison results
+- `sensor.solarman_config_manager_restore_result` - Shows restore operation results
 
-### 2. **Two Input Helpers**
+### 2. **Input Helpers (for Compare)**
 - `input_select.solarman_file1` - Dropdown for selecting older file
 - `input_select.solarman_file2` - Dropdown for selecting newer file
+- `input_boolean.solarman_config_only` - Toggle config-only mode
 
-### 3. **One Automation**
+### 3. **Input Helpers (for Restore)** - Optional
+- `input_select.solarman_restore_file` - Dropdown for selecting comparison file
+- `input_select.solarman_restore_direction` - Choose apply or revert
+- `input_boolean.solarman_restore_dry_run` - Enable dry-run preview
+
+See [RESTORE_HELPERS.yaml](RESTORE_HELPERS.yaml) for setup.
+
+### 4. **Automations**
 - Auto-updates the file dropdowns whenever a new backup is created
+- Optional: Updates restore file list (see [RESTORE_AUTOMATION.yaml](RESTORE_AUTOMATION.yaml))
 
-### 4. **Dashboard Ready to Use**
-- Complete YAML in `DASHBOARD.yaml`
+### 5. **Dashboard Ready to Use**
+- Complete YAML in `DASHBOARD.yaml` with compare and restore controls
 
 ## 🚀 How to Add the Dashboard
 
@@ -45,15 +55,30 @@
 ### Compare Two Backups
 1. Select an older file from **"File 1 (Older)"** dropdown
 2. Select a newer file from **"File 2 (Newer)"** dropdown
-3. Click **"Compare Selected Files"**
-4. Results appear immediately below:
+3. Toggle **"Configuration Only"** to filter sensor readings (recommended)
+4. Click **"Compare Selected Files"**
+5. Results appear immediately below:
    - Summary statistics (changed, added, removed)
    - Detailed list of all changes
    - Old vs New values for each change
 
+### Restore Configuration (Optional - requires helpers)
+
+If you've set up the restore helpers:
+
+1. **Select comparison file** from the restore dropdown
+2. **Choose direction:**
+   - `revert` - Go back to File 1 (older) values
+   - `apply` - Apply File 2 (newer) values
+3. **Enable Dry Run** to preview changes first (recommended)
+4. Click **"Restore Configuration"**
+5. Review the notification showing what will change
+6. If satisfied, disable Dry Run and click Restore again to apply
+
 ### View Results
 - **Comparison Result** section shows summary
 - **Detailed Changes** section shows exactly what changed with before/after values
+- **Restore Status** section shows restore operation results
 - All data updates automatically - no file opening required!
 
 ## 🎯 Features
@@ -64,6 +89,7 @@
 ✅ **Auto-Update** - File lists refresh automatically  
 ✅ **Config-Only Mode** - Filters out sensor readings by default  
 ✅ **Change Tracking** - See exactly what changed with old/new values  
+✅ **Restore with Dry-Run** - Preview and apply configuration changes safely  
 ✅ **HACS Compatible** - Everything in custom_components directory  
 
 ## 📁 Files Still Saved
@@ -117,11 +143,20 @@ All entities are available for use in your own automations too!
 
 ## 📊 Example Workflow
 
+### Basic Backup & Compare
 1. **Before firmware update:** Click "Export Configuration Now"
 2. **Update firmware** on your inverter
 3. **After update:** Click "Export Configuration Now" again
 4. **Compare:** Select both files and click "Compare"
 5. **Review:** See exactly what changed in the dashboard
+
+### Advanced: Restore Lost Settings
+1. **Before changes:** Export current config
+2. **Make changes** to your inverter
+3. **Export again** to capture changes
+4. **Compare** to see what changed
+5. **Dry-run restore** to preview reverting changes
+6. **Apply restore** if needed to undo changes
 
 ## 🆘 Troubleshooting
 

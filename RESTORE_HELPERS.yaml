@@ -1,0 +1,25 @@
+# Helper entities for Solarman Config Manager Restore feature
+# Add these to your configuration.yaml or create them via UI
+
+input_select:
+  solarman_restore_file:
+    name: Solarman Restore File
+    options:
+      - "Select comparison file..."
+    icon: mdi:file-compare
+
+  solarman_restore_direction:
+    name: Restore Direction
+    options:
+      - "revert"
+      - "apply"
+    initial: revert
+    icon: mdi:arrow-left-right
+
+input_boolean:
+  solarman_restore_dry_run:
+    name: Solarman Dry Run
+    initial: true
+    icon: mdi:test-tube
+
+# Note: sensor.solarman_config_manager_restore_result is automatically created by the integration

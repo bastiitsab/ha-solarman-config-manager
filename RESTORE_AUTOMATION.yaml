@@ -1,0 +1,41 @@
+# Automation and Script for Solarman Config Manager Restore feature
+# Add these to your automations.yaml and scripts.yaml
+
+# Automation to update restore file dropdown with available comparison files
+- id: solarman_update_restore_file_list
+  alias: "Solarman: Update Restore File List"
+  description: "Update the restore file dropdown with available comparison files"
+  trigger:
+    - platform: state
+      entity_id: sensor.solarman_config_manager_files
+    - platform: homeassistant
+      event: start
+    - platform: time_pattern
+      minutes: "/5"
+  action:
+    - service: input_select.set_options
+      target:
+        entity_id: input_select.solarman_restore_file
+      data:
+        options: >
+          {% set files = state_attr('sensor.solarman_config_manager_files', 'comparison_files') %}
+          {% if files and files | length > 0 %}
+            {{ ['Select comparison file...'] + files }}
+          {% else %}
+            ['Select comparison file...', 'No comparison files found']
+          {% endif %}
+
+---
+# Script for scripts.yaml
+# This script is needed because dashboard button cards don't evaluate templates
+
+solarman_restore_config:
+  alias: Restore Solarman Configuration
+  icon: mdi:restore
+  sequence:
+    - service: solarman_config_manager.restore_from_comparison
+      data:
+        comparison_file: "{{ states('input_select.solarman_restore_file') }}"
+        direction: "{{ states('input_select.solarman_restore_direction') }}"
+        dry_run: "{{ is_state('input_boolean.solarman_restore_dry_run', 'on') }}"
+        confirm: CONFIRM

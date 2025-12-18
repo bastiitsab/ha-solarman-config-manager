@@ -13,6 +13,7 @@ Export and compare [Solarman](https://github.com/davidrapan/ha-solarman) inverte
 
 - 📥 **Export Configuration**: Capture all Solarman entity states, attributes, and metadata to timestamped JSON files
 - 🔍 **Compare Exports**: Generate detailed diff reports showing exactly what changed between two configurations
+- 🔄 **Restore Configuration**: Apply or revert changes from comparison files with dry-run preview
 - 🎯 **Config-Only Mode**: Filter out sensor readings to only show user-configurable setting changes
 - 📁 **Automatic Organization**: Files saved to `/config/solarman_config_backups/` with timestamps
 - 🔔 **Notifications**: Receive alerts when operations complete
@@ -21,9 +22,10 @@ Export and compare [Solarman](https://github.com/davidrapan/ha-solarman) inverte
 
 - **Before firmware updates** - Backup your settings before updating inverter firmware
 - **Change tracking** - Compare configurations to see what changed after modifications
+- **Restore settings** - Revert to previous configurations or apply changes from one backup to another
 - **Troubleshooting** - Track when specific settings were modified
 - **Documentation** - Keep historical records of your inverter configuration
-- **Recovery** - Export settings before testing new configurations
+- **Recovery** - Quickly restore settings after accidental changes
 
 ## Prerequisites
 
@@ -62,7 +64,7 @@ Then restart Home Assistant.
 
 ### Services
 
-The integration provides two services accessible via Developer Tools → Actions:
+The integration provides three services accessible via Developer Tools → Actions:
 
 #### `solarman_config_manager.export_config`
 
@@ -96,6 +98,35 @@ data:
   file1: "solarman_export_20251217_100000"
   file2: "solarman_export_20251217_110000"
   config_only: true
+```
+
+#### `solarman_config_manager.restore_from_comparison`
+
+Restore configuration from a comparison file. Can apply changes forward or revert changes backward.
+
+**Parameters:**
+- `comparison_file` (required): Filename of comparison file (without .json extension)
+- `direction` (required): Either `apply` (file1 → file2) or `revert` (file2 → file1)
+- `dry_run` (optional, default: false): Preview changes without applying them
+- `confirm` (required): Must be set to `CONFIRM` to proceed (safety feature)
+
+**Example:**
+```yaml
+# Preview changes before applying
+service: solarman_config_manager.restore_from_comparison
+data:
+  comparison_file: "comparison_20251217_120000"
+  direction: "revert"
+  dry_run: true
+  confirm: CONFIRM
+
+# Actually apply the restore
+service: solarman_config_manager.restore_from_comparison
+data:
+  comparison_file: "comparison_20251217_120000"
+  direction: "revert"
+  dry_run: false
+  confirm: CONFIRM
 ```
 
 ### Export Files
@@ -143,45 +174,132 @@ tap_action:
 
 ### Complete Dashboard Example
 
-Create a new dashboard card with this YAML:
+See [DASHBOARD.yaml](DASHBOARD.yaml) for a full-featured dashboard with:
+- Export controls
+- File selection for comparison
+- Detailed diff display
+- **Restore controls** with dry-run preview
+- Status indicators
+
+To use the complete dashboard:
+
+1. **Create helper entities** (see [RESTORE_HELPERS.yaml](RESTORE_HELPERS.yaml)):
+   - Copy the helper definitions to your `configuration.yaml`
+   - Or create them via Settings → Devices & Services → Helpers
+
+2. **Add the automation** (see [RESTORE_AUTOMATION.yaml](RESTORE_AUTOMATION.yaml)):
+   - Copy to your `automations.yaml`
+   - Or create via Settings → Automations & Scenes
+
+3. **Add the dashboard**:
+   - Copy the contents of [DASHBOARD.yaml](DASHBOARD.yaml)
+   - Paste into a new Lovelace dashboard card
+
+## Common Workflows
+
+### Backup Before Firmware Update
 
 ```yaml
-type: vertical-stack
-cards:
-  - type: markdown
-    content: |
-      ## 🔧 Solarman Configuration Backup
-      
-      Backup and compare your Solarman inverter settings.
-  
-  - type: entities
-    title: Quick Actions
-    entities:
-      - type: button
-        name: Export Configuration Now
-        icon: mdi:download
-        tap_action:
-          action: call-service
-          service: solarman_config_manager.export_config
-  
-  - type: markdown
-    content: |
-      ### 📋 How to Compare Configurations
-      
-      1. Export your current config (button above)
-      2. Make changes to your inverter settings
-      3. Export again with a different name
-      4. Go to **Developer Tools → Actions**
-      5. Search for **"Solarman Backup: Compare Two Exports"**
-      6. Enter both filenames (without .json)
-      7. Check `/config/solarman_config_managers/` for the comparison report
-      
-      **Example filenames:**
-      - `solarman_export_20251217_100000`
-      - `before_firmware_update`
+# 1. Export current config
+service: solarman_config_manager.export_config
+data:
+  filename: "before_firmware_v2_5"
+
+# 2. Update firmware via inverter interface
+
+# 3. Export new config  
+service: solarman_config_manager.export_config
+data:
+  filename: "after_firmware_v2_5"
+
+# 4. Compare
+service: solarman_config_manager.compare_exports
+data:
+  file1: "before_firmware_v2_5"
+  file2: "after_firmware_v2_5"
+  config_only: true
+
+# 5. If settings were lost, restore them
+service: solarman_config_manager.restore_from_comparison
+data:
+  comparison_file: "comparison_20251217_120000"
+  direction: "revert"  # Go back to "before" state
+  dry_run: true  # Preview first
+  confirm: CONFIRM
 ```
 
-### Script Integration
+### Test Configuration Changes Safely
+
+```yaml
+# 1. Backup current working config
+service: solarman_config_manager.export_config
+data:
+  filename: "working_config"
+
+# 2. Make experimental changes via HA
+
+# 3. Export experimental config
+service: solarman_config_manager.export_config
+data:
+  filename: "experimental_config"
+
+# 4. Compare to see all changes
+service: solarman_config_manager.compare_exports
+data:
+  file1: "working_config"
+  file2: "experimental_config"
+
+# 5a. If something went wrong, revert
+service: solarman_config_manager.restore_from_comparison
+data:
+  comparison_file: "comparison_20251217_120000"
+  direction: "revert"
+  dry_run: false
+  confirm: CONFIRM
+
+# 5b. Or keep the changes and document them
+# (comparison file serves as documentation)
+```
+
+### Daily Backup with Quick Restore
+
+Set up daily backups, then quickly restore if needed:
+
+```yaml
+# Automation for daily backup
+automation:
+  - alias: Daily Solarman Backup
+    trigger:
+      - platform: time
+        at: "02:00:00"
+    action:
+      - service: solarman_config_manager.export_config
+
+# When you need to restore yesterday's settings:
+# 1. Compare today vs yesterday
+service: solarman_config_manager.compare_exports
+data:
+  file1: "solarman_export_20251216_020000"  # Yesterday
+  file2: "solarman_export_20251217_020000"  # Today
+
+# 2. Preview the restore
+service: solarman_config_manager.restore_from_comparison
+data:
+  comparison_file: "comparison_20251217_080000"
+  direction: "revert"  # Go back to yesterday
+  dry_run: true
+  confirm: CONFIRM
+
+# 3. Apply the restore
+service: solarman_config_manager.restore_from_comparison
+data:
+  comparison_file: "comparison_20251217_080000"
+  direction: "revert"
+  dry_run: false
+  confirm: CONFIRM
+```
+
+## Script Integration
 
 Add to `scripts.yaml`:
 
@@ -272,6 +390,18 @@ data:
   file2: "export2"
   config_only: true  # Only shows number, select, switch entities
 ```
+
+### Restore operation fails
+
+1. Always use `dry_run: true` first to preview changes
+2. Check that the comparison file exists in `/config/solarman_config_backups/`
+3. Ensure you've entered `confirm: CONFIRM` exactly (safety requirement)
+4. Verify entities in the comparison are still available
+5. Check logs for specific errors: Settings → System → Logs
+
+### Restore doesn't show what will change
+
+The notification shows a summary and lists the first 10 entities with their target values. For full details, check the dry-run logs or the comparison file.
 
 ## Requirements
 

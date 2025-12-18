@@ -46,6 +46,11 @@ cards:
       
       {% set data = state_attr('sensor.solarman_config_manager_comparison_result', 'summary') %}
       {% if data and data.changed is defined %}
+      {% set comp_file = state_attr('sensor.solarman_config_manager_comparison_result', 'comparison_file') %}
+      {% if comp_file %}
+      **Comparison File:** `{{ comp_file }}`
+      {% endif %}
+      
       **Summary:**
       - ✏️ Changed: {{ data.changed }}
       - ➕ Added: {{ data.added }}
@@ -109,3 +114,44 @@ cards:
         - {{ entity }}
         {% endfor %}
         {% endif %}
+        
+  # Restore Section
+  - type: entities
+    title: 🔄 Restore Configuration
+    entities:
+      - entity: input_select.solarman_restore_file
+        name: Select Comparison File
+      - entity: input_select.solarman_restore_direction
+        name: Restore Direction
+      - entity: input_boolean.solarman_restore_dry_run
+        name: Dry Run (Preview Only)
+      - type: button
+        name: Restore Configuration
+        icon: mdi:restore
+        action_name: Restore
+        tap_action:
+          action: call-service
+          service: script.solarman_restore_config
+        
+  # Restore Result
+  - type: markdown
+    content: |
+      ### 🔄 Restore Status
+      
+      **Last Restore:** {{ states('sensor.solarman_config_manager_restore_result') }}
+      
+      {% set data = state_attr('sensor.solarman_config_manager_restore_result', 'summary') %}
+      {% set dry_run = state_attr('sensor.solarman_config_manager_restore_result', 'dry_run') %}
+      {% if data and data.success is defined %}
+      
+      **Summary:**
+      - ✅ Success: {{ data.success }}
+      - ❌ Failed: {{ data.failed }}
+      - ⏭️ Skipped: {{ data.skipped }}
+      
+      {% if dry_run %}
+      ⚠️ _This was a dry run - no changes were made._
+      {% endif %}
+      {% else %}
+      _No restore operation performed yet._
+      {% endif %}
