@@ -193,6 +193,7 @@ class SolarmanConfigManagerRestoreResultSensor(SensorEntity):
 
     _attr_name = "Solarman Config Manager Restore Result"
     _attr_icon = "mdi:restore"
+    _attr_should_poll = False  # Only updates via events
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the sensor."""
@@ -200,12 +201,31 @@ class SolarmanConfigManagerRestoreResultSensor(SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_restore"
         self._attr_native_value = "No restore yet"
         self._restore_data = {}
-        
-        # Listen for restore complete events
+        self._unsub_listener = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register event listener when entity is added."""
         async def handle_restore_complete(event):
-            await self.async_update_ha_state(force_refresh=True)
+            """Handle restore complete event."""
+            _LOGGER.debug("Restore complete event received, updating sensor")
+            # Read data and update state
+            restore_result = self.hass.data.get(DOMAIN, {}).get("last_restore_result")
+            if restore_result:
+                self._restore_data = restore_result
+                if restore_result.get("dry_run"):
+                    self._attr_native_value = "Dry Run Complete"
+                else:
+                    self._attr_native_value = "Restore Complete"
+                self.async_write_ha_state()
         
-        hass.bus.async_listen(f"{DOMAIN}_restore_complete", handle_restore_complete)
+        self._unsub_listener = self.hass.bus.async_listen(
+            f"{DOMAIN}_restore_complete", handle_restore_complete
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up event listener when entity is removed."""
+        if self._unsub_listener:
+            self._unsub_listener()
 
     @property
     def native_value(self) -> str:
